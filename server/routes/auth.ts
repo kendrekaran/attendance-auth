@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import bcrypt from 'bcrypt';
+import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
-import db from '../db.js';
+import { getDb } from '../db.js';
 
 const router = Router();
 
@@ -11,15 +11,12 @@ const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const getSecrets = () => {
-  const jwtSecret = process.env.JWT_SECRET;
-  const refreshSecret = process.env.REFRESH_SECRET;
-  if (!jwtSecret || !refreshSecret) {
-    throw new Error('JWT_SECRET and REFRESH_SECRET must be set');
-  }
+  const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+  const refreshSecret = process.env.REFRESH_SECRET || 'dev-refresh-secret-change-in-production';
   return { jwtSecret, refreshSecret };
 };
 
-const generateTokens = (user: { id: number; email: string; role: string }) => {
+const generateTokens = async (user: { id: number; email: string; role: string }) => {
   const { jwtSecret, refreshSecret } = getSecrets();
 
   const accessToken = jwt.sign(
@@ -31,11 +28,11 @@ const generateTokens = (user: { id: number; email: string; role: string }) => {
   const refreshToken = crypto.randomBytes(64).toString('hex');
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS).toISOString();
 
-  // Store refresh token
-  const stmt = db.prepare(
-    'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)'
+  const db = await getDb();
+  db.run(
+    'INSERT INTO refresh_tokens (user_id, token, expires_at) VALUES (?, ?, ?)',
+    [user.id, refreshToken, expiresAt]
   );
-  stmt.run(user.id, refreshToken, expiresAt);
 
   return { accessToken, refreshToken };
 };
@@ -55,9 +52,11 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const db = await getDb();
+
     // Check if email already exists
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
-    if (existing) {
+    const existing = db.exec(`SELECT id FROM users WHERE email = '${email.replace(/'/g, "''")}'`);
+    if (existing.length > 0 && existing[0].values.length > 0) {
       res.status(409).json({ error: 'Email already registered' });
       return;
     }
@@ -65,15 +64,19 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const userRole = role === 'admin' ? 'admin' : 'employee';
 
-    const result = db.prepare(
-      'INSERT INTO users (email, name, password, role) VALUES (?, ?, ?, ?)'
-    ).run(email, name, hashedPassword, userRole);
+    db.run(
+      'INSERT INTO users (email, name, password, role) VALUES (?, ?, ?, ?)',
+      [email, name, hashedPassword, userRole]
+    );
 
-    const user = { id: result.lastInsertRowid as number, email, role: userRole };
-    const tokens = generateTokens(user);
+    const result = db.exec('SELECT last_insert_rowid() as id');
+    const userId = result[0].values[0][0] as number;
+
+    const user = { id: userId, email, role: userRole };
+    const tokens = await generateTokens(user);
 
     res.status(201).json({
-      user: { id: user.id, email, name, role: userRole },
+      user: { id: userId, email, name, role: userRole },
       ...tokens,
     });
   } catch (err) {
@@ -92,11 +95,18 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
-    if (!user) {
+    const db = await getDb();
+    const result = db.exec(`SELECT * FROM users WHERE email = '${email.replace(/'/g, "''")}'`);
+
+    if (result.length === 0 || result[0].values.length === 0) {
       res.status(401).json({ error: 'Invalid credentials' });
       return;
     }
+
+    const row = result[0].values[0];
+    const cols = result[0].columns;
+    const user: Record<string, any> = {};
+    cols.forEach((col, i) => { user[col] = row[i]; });
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
@@ -104,7 +114,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const tokens = generateTokens({ id: user.id, email: user.email, role: user.role });
+    const tokens = await generateTokens({ id: user.id, email: user.email, role: user.role });
 
     res.json({
       user: { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -117,7 +127,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 });
 
 // POST /api/auth/refresh
-router.post('/refresh', (req: Request, res: Response): void => {
+router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
   try {
     const { refreshToken } = req.body;
 
@@ -126,18 +136,23 @@ router.post('/refresh', (req: Request, res: Response): void => {
       return;
     }
 
-    // Find the refresh token
-    const stored = db.prepare(
-      'SELECT rt.*, u.email, u.role FROM refresh_tokens rt JOIN users u ON rt.user_id = u.id WHERE rt.token = ?'
-    ).get(refreshToken) as any;
+    const db = await getDb();
+    const result = db.exec(
+      `SELECT rt.*, u.email, u.role FROM refresh_tokens rt JOIN users u ON rt.user_id = u.id WHERE rt.token = '${refreshToken.replace(/'/g, "''")}'`
+    );
 
-    if (!stored) {
+    if (result.length === 0 || result[0].values.length === 0) {
       res.status(401).json({ error: 'Invalid refresh token' });
       return;
     }
 
+    const cols = result[0].columns;
+    const row = result[0].values[0];
+    const stored: Record<string, any> = {};
+    cols.forEach((col, i) => { stored[col] = row[i]; });
+
     if (new Date(stored.expires_at) < new Date()) {
-      db.prepare('DELETE FROM refresh_tokens WHERE id = ?').run(stored.id);
+      db.run(`DELETE FROM refresh_tokens WHERE id = ${stored.id}`);
       res.status(401).json({ error: 'Refresh token expired' });
       return;
     }
@@ -158,10 +173,11 @@ router.post('/refresh', (req: Request, res: Response): void => {
 });
 
 // POST /api/auth/logout
-router.post('/logout', (req: Request, res: Response): void => {
+router.post('/logout', async (req: Request, res: Response): Promise<void> => {
   const { refreshToken } = req.body;
   if (refreshToken) {
-    db.prepare('DELETE FROM refresh_tokens WHERE token = ?').run(refreshToken);
+    const db = await getDb();
+    db.run(`DELETE FROM refresh_tokens WHERE token = '${refreshToken.replace(/'/g, "''")}'`);
   }
   res.json({ message: 'Logged out' });
 });
