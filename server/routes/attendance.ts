@@ -78,14 +78,14 @@ router.get('/me', requiresRole('admin', 'employee'), async (req: AuthRequest, re
   );
 
   const records = result.length > 0
-    ? result[0].values.map(row => rowToRecord(row, result[0].columns))
+    ? result[0].values.map((row: any[]) => rowToRecord(row, result[0].columns))
     : [];
 
   res.json(records);
 });
 
 // GET /api/attendance/all — admin only
-router.get('/all', requiresRole('admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/all', requiresRole('admin'), async (_req: AuthRequest, res: Response): Promise<void> => {
   const db = await getDb();
 
   const result = db.exec(
@@ -95,7 +95,7 @@ router.get('/all', requiresRole('admin'), async (req: AuthRequest, res: Response
   );
 
   const records = result.length > 0
-    ? result[0].values.map(row => rowToRecord(row, result[0].columns))
+    ? result[0].values.map((row: any[]) => rowToRecord(row, result[0].columns))
     : [];
 
   res.json(records);

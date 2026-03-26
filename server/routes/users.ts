@@ -55,12 +55,12 @@ router.put('/me', async (req: AuthRequest, res: Response): Promise<void> => {
 });
 
 // GET /api/users/all — admin only
-router.get('/all', requiresRole('admin'), async (req: AuthRequest, res: Response): Promise<void> => {
+router.get('/all', requiresRole('admin'), async (_req: AuthRequest, res: Response): Promise<void> => {
   const db = await getDb();
   const result = db.exec('SELECT id, email, name, role, created_at FROM users ORDER BY created_at DESC');
 
   const users = result.length > 0
-    ? result[0].values.map(row => rowToUser(row, result[0].columns))
+    ? result[0].values.map((row: any[]) => rowToUser(row, result[0].columns))
     : [];
 
   res.json(users);

@@ -17,7 +17,7 @@ const getSecrets = () => {
 };
 
 const generateTokens = async (user: { id: number; email: string; role: string }) => {
-  const { jwtSecret, refreshSecret } = getSecrets();
+  const { jwtSecret } = getSecrets();
 
   const accessToken = jwt.sign(
     { userId: user.id, email: user.email, role: user.role },
@@ -106,7 +106,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     const row = result[0].values[0];
     const cols = result[0].columns;
     const user: Record<string, any> = {};
-    cols.forEach((col, i) => { user[col] = row[i]; });
+    cols.forEach((col: string, i: number) => { user[col] = row[i]; });
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
@@ -149,7 +149,7 @@ router.post('/refresh', async (req: Request, res: Response): Promise<void> => {
     const cols = result[0].columns;
     const row = result[0].values[0];
     const stored: Record<string, any> = {};
-    cols.forEach((col, i) => { stored[col] = row[i]; });
+    cols.forEach((col: string, i: number) => { stored[col] = row[i]; });
 
     if (new Date(stored.expires_at) < new Date()) {
       db.run(`DELETE FROM refresh_tokens WHERE id = ${stored.id}`);
