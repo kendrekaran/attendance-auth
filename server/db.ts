@@ -1,4 +1,4 @@
-import initSqlJs, { Database as SqlJsDatabase } from 'sql.js';
+import initSqlJs, { Database } from 'sql.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -6,9 +6,9 @@ import bcrypt from 'bcryptjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-let db: SqlJsDatabase | null = null;
+let db: Database | null = null;
 
-async function getDb(): Promise<SqlJsDatabase> {
+async function getDb(): Promise<Database> {
   if (db) return db;
 
   // Locate the wasm file — check multiple paths for dev vs prod
