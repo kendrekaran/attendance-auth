@@ -101,4 +101,56 @@ router.get('/all', requiresRole('admin'), async (_req: AuthRequest, res: Respons
   res.json(records);
 });
 
+// GET /api/attendance/stats — personal attendance stats
+router.get('/stats', requiresRole('admin', 'employee'), async (req: AuthRequest, res: Response): Promise<void> => {
+  const userId = req.user!.userId;
+  const db = await getDb();
+
+  // Total days with at least one checkin
+  const daysResult = db.exec(
+    `SELECT COUNT(DISTINCT date(timestamp)) as count FROM attendance WHERE user_id = ${userId} AND type = 'checkin'`
+  );
+  const totalDays = (daysResult[0]?.values[0]?.[0] as number) || 0;
+
+  // Total checkins / checkouts
+  const countResult = db.exec(
+    `SELECT type, COUNT(*) as count FROM attendance WHERE user_id = ${userId} GROUP BY type`
+  );
+  let totalCheckins = 0;
+  let totalCheckouts = 0;
+  if (countResult.length) {
+    countResult[0].values.forEach((row: any[]) => {
+      if (row[0] === 'checkin') totalCheckins = row[1] as number;
+      if (row[0] === 'checkout') totalCheckouts = row[1] as number;
+    });
+  }
+
+  // Average check-in time (HH:MM from timestamp)
+  const avgInResult = db.exec(
+    `SELECT AVG(substr(timestamp, 12, 5)) FROM attendance WHERE user_id = ${userId} AND type = 'checkin'`
+  );
+  const avgCheckinTime = avgInResult[0]?.values[0]?.[0] as string | null;
+
+  // Average check-out time
+  const avgOutResult = db.exec(
+    `SELECT AVG(substr(timestamp, 12, 5)) FROM attendance WHERE user_id = ${userId} AND type = 'checkout'`
+  );
+  const avgCheckoutTime = avgOutResult[0]?.values[0]?.[0] as string | null;
+
+  // Last worked date
+  const lastResult = db.exec(
+    `SELECT date(timestamp) FROM attendance WHERE user_id = ${userId} AND type = 'checkin' ORDER BY timestamp DESC LIMIT 1`
+  );
+  const lastWorked = lastResult[0]?.values[0]?.[0] as string | null;
+
+  res.json({
+    totalDays,
+    totalCheckins,
+    totalCheckouts,
+    avgCheckinTime: avgCheckinTime || null,
+    avgCheckoutTime: avgCheckoutTime || null,
+    lastWorked,
+  });
+});
+
 export default router;

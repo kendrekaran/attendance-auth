@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import AdminPanel from './pages/AdminPanel';
+import Profile from './pages/Profile';
 
 export interface User {
   id: number;
@@ -22,6 +23,13 @@ function App() {
     if (stored) {
       setUser(JSON.parse(stored));
     }
+
+    const handleUpdate = (e: CustomEvent<User>) => {
+      setUser(e.detail);
+    };
+
+    window.addEventListener('user-updated', handleUpdate as EventListener);
+    return () => window.removeEventListener('user-updated', handleUpdate as EventListener);
   }, []);
 
   return (
@@ -36,6 +44,14 @@ function App() {
             element={
               <ProtectedRoute user={user}>
                 <Dashboard user={user} />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute user={user}>
+                <Profile user={user} />
               </ProtectedRoute>
             }
           />
