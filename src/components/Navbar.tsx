@@ -38,6 +38,7 @@ export default function Navbar({ user, onLogout }: Props) {
         {user ? (
           <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
             <span>{user.name} ({user.role})</span>
+            <Link to="/profile" style={{ color: 'white', textDecoration: 'none', fontSize: '13px' }}>👤 Profile</Link>
             <button
               onClick={handleLogout}
               style={{
